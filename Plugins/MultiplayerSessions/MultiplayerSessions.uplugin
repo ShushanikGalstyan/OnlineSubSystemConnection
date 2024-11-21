@@ -23,7 +23,7 @@
 	],
 	"Plugins": [
 		{
-			"Name": "OnlineSubsytem",
+			"Name": "OnlineSubsystem",
 			"Enabled": true
 		},
 		{
