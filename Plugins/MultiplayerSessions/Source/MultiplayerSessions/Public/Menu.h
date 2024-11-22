@@ -30,10 +30,8 @@ protected:
 	UFUNCTION()
 	void OnCreateSession(bool bWasSuccessful);
 
-	UFUNCTION()
 	void OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionResults, bool bWasSuccessful);
 
-	UFUNCTION()
 	void OnJoinSession(EOnJoinSessionCompleteResult::Type Result);
 
 	UFUNCTION()
