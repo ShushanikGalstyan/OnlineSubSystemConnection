@@ -5,6 +5,7 @@
 
 #include "OnlineSessionSettings.h"
 #include "OnlineSubsystem.h"
+#include "OnlineSubsystemUtils.h"
 #include "Online/OnlineSessionNames.h"
 
 UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem():
@@ -14,7 +15,7 @@ UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem():
 	DestroySessionCompleteDelegate(FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::OnDestroySessionComplete)),
 	StartSessionCompleteDelegate(FOnStartSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnStartSessionComplete))
 {
-	if(const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+	if(const IOnlineSubsystem* Subsystem = Online::GetSubsystem(UObject::GetWorld()))
 	{
 		SessionInterface = Subsystem->GetSessionInterface();
 	}
@@ -29,12 +30,16 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, co
 	const auto ExistingSession = SessionInterface->GetNamedSession(NAME_GameSession);
 	if(ExistingSession != nullptr)
 	{
-		SessionInterface->DestroySession(NAME_GameSession);
+		bCreateSessionOnDestroy = true;
+		LastNUmPublicConnections = NumPublicConnections;
+		LastMatchType = MatchType;
+		DestroySession();
+		//SessionInterface->DestroySession(NAME_GameSession);
 	}
 	//Store the delegate in a fDelegateHandle sa we can later remove it from the delegate list
 	SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegate);
 	LastSessionSettings = MakeShareable(new FOnlineSessionSettings());
-	LastSessionSettings->bIsLANMatch = IOnlineSubsystem::Get()->GetSubsystemName() == "NULL";
+	LastSessionSettings->bIsLANMatch = Online::GetSubsystem(GetWorld())->GetSubsystemName() == "NULL";
 	LastSessionSettings->NumPublicConnections = NumPublicConnections;
 	LastSessionSettings->bAllowJoinInProgress= true;
 	LastSessionSettings->bAllowJoinViaPresence = true;
@@ -42,6 +47,7 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, co
 	LastSessionSettings->bUsesPresence = true;
 	LastSessionSettings->bUseLobbiesIfAvailable = true;
 	LastSessionSettings->Set(FName("MatchType"), MatchType, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	LastSessionSettings->BuildUniqueId = 1;
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
 	if(!SessionInterface->CreateSession(*LocalPlayer->GetPreferredUniqueNetId(), NAME_GameSession, *LastSessionSettings))
 	{
@@ -99,7 +105,21 @@ void UMultiplayerSessionsSubsystem::DestroySession()
 {
 	if(!SessionInterface.IsValid())
 	{
+		if(MultiplayerOnDestroySessionComplete.IsBound())
+		{
+			MultiplayerOnDestroySessionComplete.Broadcast(false);
+		}
 		return;
+	}
+	DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegate);
+	if(!SessionInterface->DestroySession(NAME_GameSession))
+	{
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+		//Broadcast our own custom delegate
+		if(MultiplayerOnDestroySessionComplete.IsBound())
+		{
+			MultiplayerOnDestroySessionComplete.Broadcast(false);
+		}
 	}
 }
 
@@ -108,6 +128,16 @@ void UMultiplayerSessionsSubsystem::StartSession()
 	if(!SessionInterface.IsValid())
 	{
 		return;
+	}
+	StartSessionCompleteDelegateHandle = SessionInterface->AddOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegate);
+	if(!SessionInterface->StartSession(NAME_GameSession))
+	{
+		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
+		//Broadcast our own custom delegate
+		if(MultiplayerOnStartSessionComplete.IsBound())
+		{
+			MultiplayerOnStartSessionComplete.Broadcast(false);
+		}
 	}
 }
 
@@ -148,8 +178,27 @@ void UMultiplayerSessionsSubsystem::OnJoinSessionComplete(FName SessionName, EOn
 
 void UMultiplayerSessionsSubsystem::OnDestroySessionComplete(FName SessionName, bool bWasSuccessful)
 {
+	if(SessionInterface.IsValid())
+	{
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+	}
+	if (bWasSuccessful && bCreateSessionOnDestroy)
+	{
+		bCreateSessionOnDestroy = false;
+		CreateSession(LastNUmPublicConnections, LastMatchType);
+	}
+	//Broadcast our own custom delegate
+	if (MultiplayerOnDestroySessionComplete.IsBound())
+	{
+		MultiplayerOnDestroySessionComplete.Broadcast(bWasSuccessful);
+	}
 }
 
 void UMultiplayerSessionsSubsystem::OnStartSessionComplete(FName SessionName, bool bWasSuccessful)
 {
+	if(SessionInterface)
+	{
+		SessionInterface->ClearOnStartSessionCompleteDelegate_Handle(StartSessionCompleteDelegateHandle);
+	}
+	MultiplayerOnStartSessionComplete.Broadcast(bWasSuccessful);
 }

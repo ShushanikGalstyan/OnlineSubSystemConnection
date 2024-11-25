@@ -69,4 +69,8 @@ private:
 
 	FOnStartSessionCompleteDelegate StartSessionCompleteDelegate;
 	FDelegateHandle StartSessionCompleteDelegateHandle;
+
+	bool bCreateSessionOnDestroy{false};
+	int32 LastNUmPublicConnections;
+	FString LastMatchType;
 };

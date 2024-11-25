@@ -5,10 +5,12 @@
 #include "MultiplayerSessionsSubsystem.h"
 #include "Components/Button.h"
 #include "OnlineSessionSettings.h"
+#include "OnlineSubsystemUtils.h"
 #include "Interfaces/OnlineSessionInterface.h"
 
-void UMenu::MenuSetup(int32 NumberPublicConnections, FString TypeOfMatch)
+void UMenu::MenuSetup(int32 NumberPublicConnections, FString TypeOfMatch, FString LobbyPath)
 {
+	PathToLobby = FString::Printf(TEXT("%s?listen"), *LobbyPath);
 	NumPublicConnections = NumberPublicConnections;
 	MatchType = TypeOfMatch;
 	AddToViewport();
@@ -59,6 +61,7 @@ bool UMenu::Initialize()
 
 void UMenu::HostButtonClicked()
 {
+	HostButton->SetIsEnabled(false);
 	if (MultiplayerSessionsSubsystem)
 	{
 		MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType);
@@ -67,14 +70,10 @@ void UMenu::HostButtonClicked()
 
 void UMenu::JoinButtonClicked()
 {
-	if (GEngine)
+	JoinButton->SetIsEnabled(false);
+	if (MultiplayerSessionsSubsystem)
 	{
-		GEngine->AddOnScreenDebugMessage(
-			-1,
-			15.f,
-			FColor::Yellow,
-			FString(TEXT("Join Button Clicked"))
-		);
+		MultiplayerSessionsSubsystem->FindSessions(10000);
 	}
 }
 
@@ -115,8 +114,12 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 		UWorld* World = GetWorld();
 		if(IsValid(World))
 		{
-			World->ServerTravel(FString("/Game/ThirdPerson/Maps/Lobby?listen"));
+			World->ServerTravel(FString(PathToLobby));
 		}
+	}
+	else
+	{
+		HostButton->SetIsEnabled(true);
 	}
 }
 
@@ -136,6 +139,10 @@ void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionResu
 			return;
 		}
 	}
+	if (!bWasSuccessful || SessionResults.Num() == 0)
+	{
+		JoinButton->SetIsEnabled(true);
+	}
 }
 
 void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
@@ -144,7 +151,7 @@ void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 	{
 		return;
 	}
-	if(const IOnlineSubsystem* Subsystem = IOnlineSubsystem::Get())
+	if(const IOnlineSubsystem* Subsystem = Online::GetSubsystem(GetWorld()))
 	{
 		const IOnlineSessionPtr SessionInterface = Subsystem->GetSessionInterface();
 		if(SessionInterface.IsValid())
@@ -156,6 +163,10 @@ void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 				PlayerController->ClientTravel(Address, TRAVEL_Absolute);
 			}
 		}
+	}
+	if (Result != EOnJoinSessionCompleteResult::Success)
+	{
+		JoinButton->SetIsEnabled(false);
 	}
 }
 
